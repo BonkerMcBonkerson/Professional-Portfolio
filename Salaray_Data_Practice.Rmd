@@ -1,0 +1,198 @@
+---
+title: "Salary Survey"
+author: "Conor Jayich"
+date: "2025-05-27"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+## Intro
+This survey data is from www.askamanager.org and focuses on salary income based on age, gender, experience, and industry.
+The data includes free-form text entry and is therefore messy, and needs cleaning.
+In this scenario, we are only interested in data from the United States.
+The objective of this project will be to clean the data, and answer the following questions using RStudio:
+1. Which industries pay the most, and which the least?
+2. How does work experience correlate to salary?
+
+## Initializing
+The first step is getting useful packages...
+```{r}
+library(ggplot2)
+library(tidyverse)
+library(dplyr)
+```
+and bringing in the data.
+```{r}
+survey_data <- read_csv("/home/conor/Downloads/Ask A Manager Salary Survey 2021.csv")
+head(survey_data)
+```
+## Cleaning
+Let us start by renaming the column titles to something more useful
+```{r}
+survey_data <- survey_data %>% 
+  rename(
+    timestamp = `Timestamp`,
+    age_range = `How old are you?`,
+    industry = `What industry do you work in?`,
+    job_title = `Job title`,
+    context_job_title = `If your job title needs additional context, please clarify here:`,
+    salary = `What is your annual salary? (You'll indicate the currency in a later question. If you are part-time or hourly, please enter an annualized equivalent -- what you would earn if you worked the job 40 hours a week, 52 weeks a year.)`,
+    bonus = `How much additional monetary compensation do you get, if any (for example, bonuses or overtime in an average year)? Please only include monetary compensation here, not the value of benefits.`,
+    currency = `Please indicate the currency`,
+    currency_other = `If "Other," please indicate the currency here:`,
+    context_currency = `If your income needs additional context, please provide it here:`,
+    country = `What country do you work in?`,
+    state = `If you're in the U.S., what state do you work in?`,
+    city = `What city do you work in?`,
+    exp_general = `How many years of professional work experience do you have overall?`,
+    exp_industry = `How many years of professional work experience do you have in your field?`,
+    education = `What is your highest level of education completed?`,
+    gender = `What is your gender?`,
+    race = `What is your race? (Choose all that apply.)`
+  )
+
+head(survey_data)
+```
+
+To clean the currency section up, I have decided I am not interested in keeping the salary and bonuses separate.
+For this step, I will simply take the sum of salary and bonuses, and work with that annual total.
+```{r}
+survey_data <- survey_data %>% 
+  mutate_at(c('salary','bonus'), as.numeric) %>% 
+  replace_na(list(salary = 0, bonus = 0)) %>% 
+  mutate(income_annual = rowSums(select(., salary, bonus)))
+
+head(survey_data)
+```
+
+Now, in the country column, it would be best to replace all variations of 'US' or 'USA' with 'United States' and proceed
+to filter out all other responses. We do lose some data here in the form of mispellings or people who decided to use the
+United States Flag Emoji instead of typing.
+```{r}
+survey_data <- survey_data %>% 
+  mutate(country = case_match(
+    country, c('america','America,','USA','US','U.S.','U.S','U.S.A','Usa','usa','Us','us') ~ "United States", 
+    .default = country)
+    )
+
+survey_data <- survey_data %>% filter(country == 'United States')
+
+head(survey_data)
+```
+
+
+Within the industry column, there was an option to choose, "Other:" and fill a custom selection.
+These entries make up a tiny minority of entries can be removed to make the data clearer, and to
+filter out user errors.
+```{r}
+valid_industries <- data.frame(
+  industry = c('Accounting, Banking & Finance',
+                      'Administration',
+                      'Argiculture or Forestry',
+                      'Art & Design',
+                      'Biotechnology & Pharma',
+                      'Business or Consulting',
+                      'Computing or Tech',
+                      'Education (Primary/Secondary)',
+                      'Education (Higher Education)',
+                      'Engineering or Manufacturing',
+                      'Entertainment',
+                      'Galleries, Libraries, Archives & Museums',
+                      'Government & Public Administration',
+                      'Government Affairs & Lobbying',
+                      'Health Care',
+                      'Hospitality & Events',
+                      'Insurance',
+                      'Law',
+                      'Law Enforcement & Security',
+                      'Leisure, Sport & Tourism',
+                      'Marketing, Advertising & PR',
+                      'Media & Digital',
+                      'Nonprofits',
+                      'Property or Construction',
+                      'Recruitment or HR',
+                      'Retail',
+                      'Sales',
+                      'Science',
+                      'Social Work',
+                      'Transport or Logistics',
+                      'Utilities & Telecommunications')
+)
+
+survey_data <- survey_data %>% 
+  inner_join(valid_industries)
+
+head(survey_data)
+```
+
+This data is now clean enough to answer our questions.
+
+## Analysis
+**1. Which industries pay the most, and which the least?**
+
+```{r}
+industry_salaries <- survey_data %>% 
+  group_by(industry) %>% 
+  summarise(
+    mean_income = mean(income_annual)
+  ) %>% arrange(desc(mean_income))
+```
+
+A visualization will be nice here I think.
+
+```{r}
+library(forcats)
+
+industry_salaries %>%
+  mutate(industry = fct_reorder(industry, mean_income)) %>%
+  ggplot(aes(x=industry, y=mean_income, fill = industry)) +
+    geom_bar(stat="identity") +
+    coord_flip() +
+    xlab("") +
+    ylab("Mean Income") +
+    theme_bw() +
+    theme(legend.position = "none")
+```
+
+So, according to our cleaned data, the highest earners are in Computing and Tech, Law, and Entertainment.
+The lowest earning individuals work in Administration, Social Work, and Law Enforcement & Security.
+
+**2. How does work experience correlate to salary?**
+
+```{r}
+survey_data %>% 
+  select(income_annual, exp_industry) %>% 
+  group_by(exp_industry) %>% 
+  summarise(
+    mean_income = mean(income_annual)
+  ) %>% 
+  mutate(exp_industry = fct_reorder(exp_industry, mean_income)) %>% 
+  ggplot(aes(x = exp_industry, y = mean_income, fill = exp_industry)) +
+  geom_bar(stat = "Identity") +
+  coord_flip() +
+  xlab("Mean Income") +
+  ylab("") +
+  theme_bw() +
+  theme(legend.position = "none")
+```
+
+The result is intuitive. The greater your experience in the industry you work in, the greater your income.
+However, there is a notable exception among people who have 41 or more years of industry experience. They
+seemingly make a middling income. Perhaps they experience income stagnation from holding one job for a long
+time.
+
+## Conclusion
+Here, I took some very messy data, cleaned it, and made some simple observations based on it.
+This was done using the r libraries, tidyverse, dplyr, and ggplot2.
+The outcomes were clear, readable, and informative. I effectively took data - much of which
+was not useful due to input problems - and made it usable for analysis.
+
+However, the method of cleaning used did result in considerable data loss. The data could have
+been cleaned with a method that minimized data loss at the expense of time. However, this method
+was beyond the scope of this project.
+
+I took the messy data, made it usable, and answered some basic questions pertaining to its content,
+and created a basic presentation for it.
+
+Thank you for taking the time to read this :^)
